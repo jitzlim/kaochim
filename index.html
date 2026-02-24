@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Zen Oracle: Custom Edition</title>
+    <style>
+        :root { --gold: #d4af37; --crimson: #800000; --parchment: #fffbe6; }
+        body {
+            background-color: #1a0505; color: var(--parchment);
+            font-family: 'Times New Roman', serif; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; margin: 0; overflow: hidden; text-align: center;
+        }
+
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 100;
+        }
+
+        .btn {
+            background: var(--gold); color: var(--crimson); border: none;
+            padding: 12px 30px; font-size: 1rem; font-weight: bold;
+            border-radius: 50px; cursor: pointer; margin: 10px;
+        }
+
+        /* Settings Icon */
+        #settings-trigger {
+            position: fixed; top: 20px; right: 20px; font-size: 1.5rem;
+            cursor: pointer; opacity: 0.3; z-index: 10;
+        }
+
+        #cylinder {
+            width: 110px; height: 190px;
+            background: linear-gradient(to right, #600000, var(--crimson), #600000);
+            border: 3px solid var(--gold); border-radius: 10px 10px 45px 45px;
+            position: relative; margin: 30px auto;
+        }
+
+        .stick {
+            width: 7px; height: 150px; background: #e3c58d;
+            position: absolute; top: -55px; left: 50%;
+            transform-origin: bottom center; border-top: 15px solid #b30000;
+        }
+
+        .shaking { animation: shakeEffect 0.15s infinite; }
+        @keyframes shakeEffect {
+            0% { transform: translate(2px, 2px) rotate(0deg); }
+            50% { transform: translate(-2px, -2px) rotate(-5deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
+        }
+
+        .modal {
+            display: none; position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); background: var(--parchment);
+            color: #222; padding: 25px; width: 80%; max-width: 350px;
+            border: 8px double var(--crimson); z-index: 50; box-shadow: 0 0 50px black;
+        }
+
+        input { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+
+    <div id="settings-trigger" onclick="openSettings()">⚙️</div>
+
+    <div id="overlay">
+        <h1 style="color: var(--gold)">Zen Oracle</h1>
+        <button class="btn" onclick="initSensors()">BEGIN RITUAL</button>
+    </div>
+
+    <div id="app-content">
+        <h2 style="color: var(--gold)">SHAKE TO REVEAL</h2>
+        <div id="cylinder">
+            <div class="stick" style="transform: rotate(-7deg) translate(-12px, 0);"></div>
+            <div class="stick" style="transform: rotate(8deg) translate(15px, 0);"></div>
+        </div>
+        <button class="btn" style="background: transparent; color: var(--gold); border: 1px solid var(--gold);" onclick="showHistory()">History</button>
+    </div>
+
+    <div id="result-modal" class="modal">
+        <h3 id="f-title" style="color: var(--crimson)"></h3>
+        <p id="f-poem" style="font-size: 1.2rem; font-style: italic;"></p>
+        <p id="f-meaning"></p>
+        <button class="btn" onclick="closeModal()">ACKNOWLEDGE</button>
+    </div>
+
+    <div id="settings-modal" class="modal">
+        <h3>Rig the Oracle</h3>
+        <p style="font-size: 0.8rem;">The next shake will show this:</p>
+        <input type="text" id="custom-t" placeholder="Stick # (e.g. Stick #99)">
+        <input type="text" id="custom-p" placeholder="Poetic Verse">
+        <input type="text" id="custom-m" placeholder="The Meaning">
+        <button class="btn" onclick="saveCustom()">SET TRAP</button>
+        <button class="btn" style="background:#ccc;" onclick="document.getElementById('settings-modal').style.display='none'">CANCEL</button>
+    </div>
+
+    <script>
+        let isProcessing = false;
+        let riggedFortune = null;
+        
+        const rattleSnd = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3'); 
+        const bellSnd = new Audio('https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3');
+        rattleSnd.loop = true;
+
+        const fortunes = [
+            { t: "Stick #8: Great Luck", p: "The dragon rises above the storm.", m: "Success is certain." },
+            { t: "Stick #21: Middle Luck", p: "The moon reflects in the pond.", m: "Be still and observe." }
+        ];
+
+        async function initSensors() {
+            rattleSnd.play().then(() => rattleSnd.pause());
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                const response = await DeviceMotionEvent.requestPermission();
+                if (response === 'granted') window.addEventListener('devicemotion', detectShake);
+            } else {
+                window.addEventListener('devicemotion', detectShake);
+            }
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        function detectShake(e) {
+            if (isProcessing) return;
+            const acc = e.accelerationIncludingGravity;
+            if (Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2) > 20) startFortune();
+        }
+
+        function startFortune() {
+            isProcessing = true;
+            document.getElementById('cylinder').classList.add('shaking');
+            rattleSnd.play();
+
+            setTimeout(() => {
+                document.getElementById('cylinder').classList.remove('shaking');
+                rattleSnd.pause();
+                bellSnd.play();
+                
+                // Check if a custom fortune is set
+                let res;
+                if (riggedFortune) {
+                    res = riggedFortune;
+                    riggedFortune = null; // Reset for the next time
+                } else {
+                    res = fortunes[Math.floor(Math.random() * fortunes.length)];
+                }
+
+                displayFortune(res);
+            }, 1800);
+        }
+
+        function openSettings() { document.getElementById('settings-modal').style.display = 'block'; }
+
+        function saveCustom() {
+            riggedFortune = {
+                t: document.getElementById('custom-t').value || "Stick #?",
+                p: document.getElementById('custom-p').value || "A mystery remains.",
+                m: document.getElementById('custom-m').value || "No meaning provided."
+            };
+            document.getElementById('settings-modal').style.display = 'none';
+            alert("Oracle rigged! Hand the phone to your friend.");
+        }
+
+        function displayFortune(res) {
+            document.getElementById('f-title').innerText = res.t;
+            document.getElementById('f-poem').innerText = `"${res.p}"`;
+            document.getElementById('f-meaning').innerText = res.m;
+            document.getElementById('result-modal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('result-modal').style.display = 'none';
+            isProcessing = false;
+        }
+    </script>
+</body>
+</html>
